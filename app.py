@@ -1,109 +1,44 @@
-import os
-import cv2
-import numpy as np
-import streamlit as st
-from moviepy.editor import VideoFileClip, AudioFileClip, ImageClip, CompositeVideoClip
+voice_audio = None
+            if audio_option == "Auto AI Voice Generator" and ai_script:
+                tts = gTTS(text=ai_script, lang=selected_lang, slow=False)
+                tts_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                tts.save(tts_path)
+                voice_audio = mp.AudioFileClip(tts_path)
+            elif audio_option == "Upload Custom Audio" and custom_audio_file:
+                ca_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                ca_file.write(custom_audio_file.read())
+                voice_audio = mp.AudioFileClip(ca_file.name)
 
-st.set_page_config(page_title="Movie Parody Engine", layout="wide")
-st.title(" Parody Video Processing & Anti-Copyright Engine")
+            if bgm_file:
+                bgm_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                bgm_path.write(bgm_file.read())
+                bgm_audio = mp.AudioFileClip(bgm_path.name).volumex(0.18)
+                
+                if voice_audio:
+                    final_audio = mp.CompositeAudioClip([voice_audio, bgm_audio.set_duration(final_video.duration)])
+                else:
+                    final_audio = mp.CompositeAudioClip([raw_clip.audio.volumex(0.8), bgm_audio.set_duration(final_video.duration)])
+            else:
+                final_audio = voice_audio if voice_audio else raw_clip.audio
 
-# 1. FILE UPLOADERS
-st.sidebar.header(" Media Uploads")
-video_file = st.sidebar.file_uploader("1. Upload Movie Clip (MP4)", type=["mp4", "mov"])
-audio_file = st.sidebar.file_uploader("2. Upload Myanmar Voiceover (MP3/WAV)", type=["mp3", "wav"])
-logo_file = st.sidebar.file_uploader("3. Upload Brand Logo (PNG)", type=["png"])
+            if final_audio:
+                final_video = final_video.set_audio(final_audio)
 
-# 2. EDITING CONTROLS
-st.sidebar.header(" Editing Controls")
-blur_y_pct = st.sidebar.slider("Subtitle Blur Y-Start (%)", 60, 95, 80)
-blur_h_pct = st.sidebar.slider("Blur Height (%)", 5, 25, 12)
-logo_pos = st.sidebar.selectbox("Logo Position", ["Top-Right", "Top-Left", "Bottom-Right", "Bottom-Left"])
-logo_size_pct = st.sidebar.slider("Logo Size (%)", 5, 25, 10)
-
-def process_video(v_path, a_path, l_path):
-    cap = cv2.VideoCapture(v_path)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
-    y1 = int(height * (blur_y_pct / 100.0))
-    y2 = int(y1 + (height * (blur_h_pct / 100.0)))
-
-    blurred_temp = "temp_blur.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(blurred_temp, fourcc, fps, (width, height))
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        sub_roi = frame[y1:y2, 0:width]
-        frame[y1:y2, 0:width] = cv2.GaussianBlur(sub_roi, (51, 51), 30)
-        out.write(frame)
-
-    cap.release()
-    out.release()
-
-    clip = VideoFileClip(blurred_temp)
-    w, h = clip.size
-    clip = clip.crop(x1=w*0.02, y1=h*0.02, x2=w*0.98, y2=h*0.98).resize((w, h))
-    clip = clip.fx(VideoFileClip.speedx, 1.03)
-
-    elements = [clip]
-
-    if l_path:
-        logo_w = int(w * (logo_size_pct / 100.0))
-        logo = ImageClip(l_path).resize(width=logo_w).set_duration(clip.duration)
-        pos_mapping = {
-            "Top-Right": ("right", "top"),
-            "Top-Left": ("left", "top"),
-            "Bottom-Right": ("right", "bottom"),
-            "Bottom-Left": ("left", "bottom")
-        }
-        logo = logo.set_position(pos_mapping[logo_pos])
-        elements.append(logo)
-
-    final_clip = CompositeVideoClip(elements)
-
-    if a_path:
-        new_audio = AudioFileClip(a_path)
-        if new_audio.duration > final_clip.duration:
-            new_audio = new_audio.subclip(0, final_clip.duration)
-        final_clip = final_clip.set_audio(new_audio)
-    else:
-        final_clip = final_clip.without_audio()
-
-    final_output = "final_output.mp4"
-    final_clip.write_videofile(final_output, codec="libx264", audio_codec="aac")
-
-    if os.path.exists(blurred_temp):
-        os.remove(blurred_temp)
-
-    return final_output
-
-if video_file:
-    with open("input.mp4", "wb") as f:
-        f.write(video_file.getbuffer())
-    if audio_file:
-        with open("input.mp3", "wb") as f:
-            f.write(audio_file.getbuffer())
-    if logo_file:
-        with open("logo.png", "wb") as f:
-            f.write(logo_file.getbuffer())
-
-    if st.button(" Render Parody Video"):
-        with st.spinner("Processing Video, Blur & Audio Dubbing..."):
-            a_in = "input.mp3" if audio_file else None
-            l_in = "logo.png" if logo_file else None
-            out_file = process_video("input.mp4", a_in, l_in)
+            final_video = final_video.speedx(speed_factor)
+            output_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+            final_video.write_videofile(output_path, codec="libx264", audio_codec="aac", fps=24)
             
-            st.success("Processing Complete!")
-            st.video(out_file)
+            st.success("🎉 Render Complete! Master Video Asset Ready.")
+            st.video(output_path)
             
-            with open(out_file, "rb") as file:
-                st.download_button(
-                    label=" Download Copyright-Safe Video",
-                    data=file,
-                    file_name="parody_final.mp4",
-                    mime="video/mp4"
-                )
+            with open(output_path, "rb") as file:
+                st.download_button("📥 Download Final Video", file, file_name="MMVL_Master_v6.mp4")
+                
+            st.subheader("🔥 Auto SEO Title & Hashtags Matrix")
+            st.code(f"""
+[VIRAL TITLE]: {sub_text} - Best Scenes Breakdown! 😱 #Shorts
+[SEO DESCRIPTION]: Watch this scene reaction & story recap! Subscribe for daily content.
+[HASHTAGS]: #MovieRecap #MovieReaction #Shorts #Reels #TikTokViral
+            """, language="markdown")
+else:
+    st.info("👈 Upload media files in the sidebar to start execution.")
